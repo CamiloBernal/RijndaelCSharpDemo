@@ -2,209 +2,95 @@
 using System.IO;
 using System.Security.Cryptography;
 using System.Text;
+using System.Threading;
+using System.Threading.Tasks;
 
 namespace RijndaelDemo
 {
     public class Program
     {
-        /// <summary>
-        /// Desencripta un mensaje
-        /// </summary>
-        /// <param name="mensajeEncriptado">
-        /// Mensaje que va a ser desencriptado
-        /// </param>
-        /// <param name="algoritmo">
-        /// Instancia del algoritmo simétrico a usar para la desencriptación
-        /// </param>
-        /// <returns>
-        /// Un array de bytes que representan el mensaje encriptado.
-        /// </returns>
-        public static byte[] Desencriptar(byte[] mensajeEncriptado, SymmetricAlgorithm algoritmo)
+        public static async Task<string> DecryptStringAsync(string encryptedData, byte[] key, byte[] iv, CancellationToken cancellationToken = default(CancellationToken))
         {
-            // ReSharper disable once NotAccessedVariable
-            // La clase SymmetricAlgorithm delega el proceso de desencriptación de datos
-            // Una instancia de ICryptoTransform transforma texto plano en texto cifrado o vice versa.
-            // Las siguiente sentencia demuestra como crear transformaciones usando CreateDecryptor.
-            var mensajeDesencriptado = new byte[mensajeEncriptado.Length];
-            // Crear una ICryptoTransform que puede ser usada para desencriptar datos
-            var desencriptador = algoritmo.CreateDecryptor();
-            // Procedemos a descifrar el mensaje
-            var memoryStream = new MemoryStream(mensajeEncriptado);
-            // Creamos el CryptoStream
-            var cryptoStream = new CryptoStream(memoryStream, desencriptador, CryptoStreamMode.Read);
-            // Decrypting data and get the count of plain text bytes.
-            cryptoStream.Read(mensajeDesencriptado, 0, mensajeDesencriptado.Length);
-            // Liberamos recursos.
-            memoryStream.Close();
-            cryptoStream.Close();
-            return mensajeDesencriptado;
+            var cipherTextBytes = Convert.FromBase64String(encryptedData);
+            var plainTextBytes = new byte[cipherTextBytes.Length];
+            using (var rijndael = Rijndael.Create())
+            using (var memoryStream = new MemoryStream(cipherTextBytes))
+            using (var cryptoStream = new CryptoStream(memoryStream, rijndael.CreateDecryptor(key, iv), CryptoStreamMode.Read))
+            {
+                var decryptedByteCount = await cryptoStream.ReadAsync(plainTextBytes, 0, plainTextBytes.Length, cancellationToken).ConfigureAwait(false);
+                memoryStream.Close();
+                cryptoStream.Close();
+                rijndael.Clear();
+                return Encoding.UTF8.GetString(plainTextBytes, 0, decryptedByteCount);
+            }
         }
 
-        /// <summary>
-        /// Encripta un mensaje
-        /// </summary>
-        /// <param name="mensajeSinEncriptar">
-        /// Mensaje que va a ser encriptado
-        /// </param>
-        /// <param name="algoritmo">
-        /// Instancia del algoritmo simétrico a usar para la encriptación
-        /// </param>
-        /// <returns>
-        /// Un array de bytes que representan el mensaje encriptado.
-        /// </returns>
-        public static byte[] Encriptar(string mensajeSinEncriptar, SymmetricAlgorithm algoritmo)
+        public static async Task<string> DecryptStringAsync(string encryptedData, string key, string iv, CancellationToken cancellationToken = default(CancellationToken))
         {
-            // La clase SymmetricAlgorithm delega el proceso de encriptación de datos
-            // a la interfaz ICryptoTransform, la cual expone los detalles en el manejo de bloques.
-            // Una instancia de ICryptoTransform transforma texto plano en texto cifrado o vice versa.
-            // Las siguiente sentencia demuestra como crear transformaciones usando CreateEncryptor.
-            // Crear una ICryptoTransform que puede ser usada para encriptar datos
-            var encriptador = algoritmo.CreateEncryptor();
-            // Las instancias de la interfaz ICryptoTransform no son útiles en si mismas.
-            // .NET framework provee la clase CryptoStream para el manejo de instancias de la interfaz ICryptoTransform.
-            // La clase CryptoStream actua como un envoltorio sobre un stream y transforma
-            // automáticamente bloques de datos usando una interfaz ICryptoTransform.
-            // La clase CryptoStream transforma datos leídos de un stream
-            // (por ejemplo, desencriptando texto cifrado de un fichero)
-            // o escribiendo en un stream (por ejemplo, encriptando datos generados por programa
-            // y almacenando el resultado en un fichero).
-            // Crear instancias de la clase CryptoStream requiere un stream real,
-            // una instancia de la interfaz ICryptoTransform
-            // y un valor de la enumeracion CryptoStreamMode
-            // Obtenemos los bytes que representan el mensaje a encriptar
-            var textoPlano = Encoding.Default.GetBytes(mensajeSinEncriptar);
-            // Creamos un MemoryStream
-            var memoryStream = new MemoryStream();
-            // Cualquier operación de encriptación/desencriptación hara que la clase
-            // que implemente el algoritmo simétrico genere una nueva clave e IV
-            // si dichos valores no han sido establecidos
-            // Creamos el CryptoStream
-            var cryptoStream = new CryptoStream(memoryStream, encriptador, CryptoStreamMode.Write);
-            // Escribimos el textoPlano hacia el CryptoStream
-            cryptoStream.Write(textoPlano, 0, textoPlano.Length);
-            // Terminamos la operación de encriptación.
-            cryptoStream.FlushFinalBlock();
-            // Liberamos.
-            memoryStream.Close();
-            cryptoStream.Close();
-            // Obtenemos el texto cifrado del MemoryStream
-            return memoryStream.ToArray();
+            var cryptBytes = GetCryptBytes(key, iv);
+            return await DecryptStringAsync(encryptedData, cryptBytes.Item1, cryptBytes.Item2, cancellationToken).ConfigureAwait(false);
         }
 
-        /// <summary>
-        /// Configuración del algoritmo simétrico
-        /// </summary>
-        /// <param name="algoritmo">
-        /// Una instancia del algoritmo simétrico.
-        /// </param>
-        private static void ConfigurarAlgoritmo(SymmetricAlgorithm algoritmo)
+        public static async Task<string> EncryptStringAsync(string plainData, byte[] key, byte[] iv, CancellationToken cancellationToken = default(CancellationToken))
         {
-            // Cambiamos el valor del tamaño de bloque
-            algoritmo.BlockSize = 128;
-            // Establecemos el modo de cifrado y con el modo de relleno
-            algoritmo.Mode = CipherMode.CBC;
-            algoritmo.Padding = PaddingMode.PKCS7;
-            Console.WriteLine($"Longitud de bloque: {algoritmo.BlockSize}");
-            Console.WriteLine($"Modo de cifrado: {algoritmo.Mode}");
-            Console.WriteLine($"Modo de relleno: {algoritmo.Padding}");
-            Console.WriteLine("Pulse una tecla para continuar…\n");
-            Console.ReadKey();
+            byte[] cipherMessageBytes;
+            using (var rijndael = Rijndael.Create())
+            using (var memoryStream = new MemoryStream())
+            using (var cryptoStream = new CryptoStream(memoryStream, rijndael.CreateEncryptor(key, iv), CryptoStreamMode.Write))
+            {
+                var plainDataInBytes = Encoding.UTF8.GetBytes(plainData);
+                await cryptoStream.WriteAsync(plainDataInBytes, 0, plainDataInBytes.Length, cancellationToken).ConfigureAwait(false);
+                cryptoStream.FlushFinalBlock();
+                cipherMessageBytes = memoryStream.ToArray();
+                memoryStream.Close();
+                cryptoStream.Close();
+                rijndael.Clear();
+            }
+            return Convert.ToBase64String(cipherMessageBytes);
         }
 
-        /// <summary>
-        /// Tres formas de generar una clave.
-        /// </summary>
-        /// <param name="algoritmo">
-        /// Una instancia del algoritmo simétrico.
-        /// </param>
-        private static void GenerarClave(SymmetricAlgorithm algoritmo)
+        public static async Task<string> EncryptStringAsync(string plainData, string key, string iv, CancellationToken cancellationToken = default(CancellationToken))
         {
-            // Establecemos la longitud que queremos que tenga la clave a generar.
-            algoritmo.KeySize = 256;
-            Console.WriteLine($"Longitud de la clave:   {algoritmo.KeySize}");
-            Console.WriteLine("Pulse una tecla para continuar…\n");
-            Console.ReadKey();
-            // Leer sin más el valor de la clave hara que se genere.
-            // sacamos la clave por consola
-            Console.WriteLine("La clave: ");
-            foreach (var b in algoritmo.Key)
-            {
-                Console.Write($"{b:X2} ");
-            }
-            Console.WriteLine("\nPulse una tecla para continuar…\n");
-            Console.ReadKey();
-            // Podemos generar otra nueva
-            algoritmo.GenerateKey();
-            // sacamos la nueva clave por consola
-            Console.WriteLine("Otra clave: ");
-            foreach (var b in algoritmo.Key)
-            {
-                Console.Write($"{b:X2} ");
-            }
-            Console.WriteLine("\nPulse una tecla para continuar…\n");
-            Console.ReadKey();
-            // Otra forma de crear claves sería con RNG (Random Number Generator)
-            var randomNumberGenerator = RandomNumberGenerator.Create();
-            // Se rellena el array de bytes de la clave con datos aleatorios
-            randomNumberGenerator.GetBytes(algoritmo.Key);
-            // sacamos la clave por consola
-            Console.WriteLine("Otra forma de obtener una clave: ");
-            foreach (var b in algoritmo.Key)
-            {
-                Console.Write($"{b:X2} ");
-            }
-            Console.WriteLine("\nPulse una tecla para continuar…\n");
-            Console.ReadKey();
+            var cryptBytes = GetCryptBytes(key, iv);
+            return await EncryptStringAsync(plainData, cryptBytes.Item1, cryptBytes.Item2, cancellationToken).ConfigureAwait(false);
         }
 
-        /// <summary>
-        /// Para generar un vector de inicialización
-        /// </summary>
-        /// <param name="algoritmo">
-        /// Una instancia del algoritmo simétrico.
-        /// </param>
-        private static void GenerarIv(SymmetricAlgorithm algoritmo)
+        public static Tuple<byte[], byte[]> GetCryptBytes(string key, string iv)
         {
-            // Si haces lo siguiente se genera un nuevo IV
-            algoritmo.GenerateIV();
-            // sacamos el IV por consola
-            Console.WriteLine("IV (Vector de inicialización): ");
-            foreach (var b in algoritmo.IV)
-            {
-                Console.Write($"{b:X2} ");
-            }
-            Console.WriteLine("\nPulse una tecla para continuar…\n");
-            Console.ReadKey();
+            var keyBytes = Encoding.UTF8.GetBytes(key);
+            var ivBytes = Encoding.UTF8.GetBytes(iv);
+            const int keySize = 32;
+            const int ivSize = 16;
+            Array.Resize(ref keyBytes, keySize);
+            Array.Resize(ref ivBytes, ivSize);
+            return Tuple.Create(keyBytes, ivBytes);
         }
 
-        private static void Main()
+        public static Tuple<byte[], byte[]> GetRijndaelCryptoKeys()
         {
-            // Este es el mensaje que vamos a encriptar.
-            const string mensaje = "Programando seguridad en C#.NET";
-            Console.WriteLine("Esto es el mensaje sin cifrar: " + mensaje);
-            Console.WriteLine("Pulse una tecla para continuar…\n");
-            Console.ReadKey();
-            // Creamos el algoritmo encriptador
-            var algoritmo = SymmetricAlgorithm.Create("Rijndael");
-            //Se podría haber creado el algoritmo de esta otra manera:
-            //RijndaelManaged algoritmoEncriptador = new RijndaelManaged();
-            ConfigurarAlgoritmo(algoritmo);
-            GenerarClave(algoritmo);
-            GenerarIv(algoritmo);
-            var mensajeEncriptado = Encriptar(mensaje, algoritmo);
-            Console.WriteLine("Esto es el mensaje cifrado:");
-            foreach (var b in mensajeEncriptado)
+            using (var rijndael = Rijndael.Create())
             {
-                Console.Write($"{b:X2} ");
+                var keys = Tuple.Create(rijndael.Key, rijndael.IV);
+                rijndael.Clear();
+                return keys;
             }
-            Console.WriteLine("\nPulse una tecla para continuar…\n");
+        }
+
+        public static void Main()
+        {
+            var keys = GetRijndaelCryptoKeys();
+            var key = keys.Item1;
+            var vi = keys.Item2;
+            var strKey = "This is the key for encrypt"; //Encoding.UTF8.GetString(key);
+            var strVi = "This is the initialization vector"; //Encoding.UTF8.GetString(vi);
+            Console.Write("Write phrase to encrypt:");
+            var phrase = Console.ReadLine();
+            Console.WriteLine($"Encrypt with keys: key--> {strKey}  vi--> {strVi}");
+            var encrypted = EncryptStringAsync(phrase, strKey, strVi).Result;
+            Console.WriteLine($"Encrypted text: {encrypted}");
+            var decrypted = DecryptStringAsync(encrypted, strKey, strVi).Result;
+            Console.WriteLine($"Decrypted text: {decrypted}");
             Console.ReadKey();
-            var mensajeDesencriptado = Desencriptar(mensajeEncriptado, algoritmo);
-            var mensajeDescrifrado = Encoding.UTF8.GetString(mensajeDesencriptado);
-            Console.WriteLine("Esto es el mensaje descifrado: " + mensajeDescrifrado);
-            Console.WriteLine("Pulse una tecla para terminar…\n");
-            Console.ReadKey();
-            algoritmo.Clear();
         }
     }
 }
